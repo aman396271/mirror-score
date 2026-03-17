@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  backend:
+    build: ./backend
+    restart: always
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://47.111.24.34/api
+
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - backend
+      - frontend

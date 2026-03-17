@@ -69,4 +69,13 @@
 
 ---
 
+## [2026-03-17] DEPLOY — 项目上线
+
+- DEPLOY：代码推送到 GitHub（aman396271/mirror-score）
+- DEPLOY：添加 backend/Dockerfile、frontend/Dockerfile、docker-compose.yml、nginx/default.conf
+- FIX：backend CORS 改为 allow_origins=["*"]，添加 __main__ 入口
+- DOCS：README 添加在线访问地址和部署方式
+
+---
+
 <!-- 后续条目追加在此 -->
