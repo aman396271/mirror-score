@@ -29,6 +29,15 @@ type AnalyzeResult = {
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
+const LOADING_MESSAGES = [
+  "AI \u6b63\u5728\u626b\u63cf\u9762\u90e8\u7279\u5f81...",
+  "\u6b63\u5728\u5206\u6790\u4e94\u5b98\u6bd4\u4f8b\u4e0e\u5bf9\u79f0\u6027...",
+  "\u6b63\u5728\u8bc4\u4f30\u80a4\u8272\u4e0e\u80a4\u8d28...",
+  "\u6b63\u5728\u8ba1\u7b97\u773c\u8ddd\u4e0e\u8138\u578b\u5339\u914d\u5ea6...",
+  "\u6b63\u5728\u751f\u6210\u4e2a\u6027\u5316\u6539\u5584\u5efa\u8bae...",
+  "\u5373\u5c06\u5b8c\u6210\uff0c\u8bf7\u7a0d\u5019...",
+];
+
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -38,6 +47,8 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState("");
   const [canRetry, setCanRetry] = useState(false);
   const [result, setResult] = useState<AnalyzeResult | null>(null);
+  const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     return () => {
@@ -46,6 +57,29 @@ export default function Home() {
       }
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    if (!isSubmitting) return;
+    setLoadingMsgIdx(0);
+    setProgress(0);
+
+    const msgTimer = setInterval(() => {
+      setLoadingMsgIdx((i) => (i + 1) % LOADING_MESSAGES.length);
+    }, 3000);
+
+    const progTimer = setInterval(() => {
+      setProgress((p) => {
+        if (p >= 90) return p;
+        const step = p < 40 ? 3 : p < 70 ? 1.5 : 0.5;
+        return Math.min(p + step, 90);
+      });
+    }, 400);
+
+    return () => {
+      clearInterval(msgTimer);
+      clearInterval(progTimer);
+    };
+  }, [isSubmitting]);
 
   const validateFile = (file: File) => {
     if (!ACCEPTED_TYPES.includes(file.type)) {
@@ -152,6 +186,8 @@ export default function Home() {
         );
       }
 
+      setProgress(100);
+      await new Promise((r) => setTimeout(r, 300));
       setResult(responseData as AnalyzeResult);
       setErrorMessage("");
       setCanRetry(false);
@@ -259,16 +295,39 @@ export default function Home() {
               </div>
             ) : null}
 
-            <button
-              type="button"
-              className="mt-5 w-full rounded-full bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-500 disabled:text-neutral-200"
-              onClick={handleAnalyze}
-              disabled={isSubmitting}
-            >
-              {isSubmitting
-                ? "AI \u6b63\u5728\u5206\u6790\u4f60\u7684\u7167\u7247..."
-                : "\u5f00\u59cb\u5206\u6790"}
-            </button>
+            {isSubmitting ? (
+              <div className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-5">
+                <p className="text-center text-sm font-medium text-white">
+                  {LOADING_MESSAGES[loadingMsgIdx]}
+                </p>
+                <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-white transition-all duration-500 ease-out"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <div className="mt-3 flex justify-center gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="inline-block h-1.5 w-1.5 rounded-full bg-white/60"
+                      style={{ animation: `pulse 1.2s ease-in-out ${i * 0.4}s infinite` }}
+                    />
+                  ))}
+                </div>
+                <p className="mt-3 text-center text-xs text-neutral-500">
+                  {"\u5206\u6790\u901a\u5e38\u9700\u8981 10-15 \u79d2"}
+                </p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="mt-5 w-full rounded-full bg-white px-4 py-3 text-sm font-semibold text-neutral-950 transition hover:bg-neutral-200"
+                onClick={handleAnalyze}
+              >
+                {"\u5f00\u59cb\u5206\u6790"}
+              </button>
+            )}
           </section>
         ) : (
           <>
