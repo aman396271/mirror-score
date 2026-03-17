@@ -1,0 +1,12 @@
+node_modules
+.next
+__pycache__
+*.pyc
+.env
+.env.local
+venv
+.venv
+
+# 本地工具目录
+.ccb/
+.claude/
