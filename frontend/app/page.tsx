@@ -8,6 +8,11 @@ type DetailItem = {
   comment: string;
 };
 
+type LockedTip = {
+  title: string;
+  content: string;
+};
+
 type AnalyzeResult = {
   totalScore: number;
   ageRange: string;
@@ -23,7 +28,9 @@ type AnalyzeResult = {
     hairStyle: DetailItem;
   };
   freeTips: string[];
-  lockedTips: string[];
+  lockedTips: LockedTip[];
+  orderId: string;
+  isPaid: boolean;
 };
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -49,6 +56,11 @@ export default function Home() {
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [isPaid, setIsPaid] = useState(false);
+  const [paidTips, setPaidTips] = useState<LockedTip[]>([]);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payError, setPayError] = useState("");
 
   useEffect(() => {
     return () => {
@@ -104,6 +116,11 @@ export default function Home() {
     setCanRetry(false);
     setResult(null);
     setIsSubmitting(false);
+    setIsPaid(false);
+    setPaidTips([]);
+    setShowPayModal(false);
+    setPayLoading(false);
+    setPayError("");
   };
 
   const updateSelectedFile = (file: File) => {
@@ -113,6 +130,11 @@ export default function Home() {
       setResult(null);
       setErrorMessage(validationMessage);
       setCanRetry(false);
+      setIsPaid(false);
+      setPaidTips([]);
+      setShowPayModal(false);
+      setPayLoading(false);
+      setPayError("");
 
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
@@ -131,6 +153,11 @@ export default function Home() {
     setResult(null);
     setErrorMessage("");
     setCanRetry(false);
+    setIsPaid(false);
+    setPaidTips([]);
+    setShowPayModal(false);
+    setPayLoading(false);
+    setPayError("");
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -165,6 +192,11 @@ export default function Home() {
     setIsSubmitting(true);
     setErrorMessage("");
     setCanRetry(false);
+    setShowPayModal(false);
+    setIsPaid(false);
+    setPaidTips([]);
+    setPayLoading(false);
+    setPayError("");
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -188,7 +220,11 @@ export default function Home() {
 
       setProgress(100);
       await new Promise((r) => setTimeout(r, 300));
-      setResult(responseData as AnalyzeResult);
+
+      const analyzeResult = responseData as AnalyzeResult;
+      setResult(analyzeResult);
+      setIsPaid(analyzeResult.isPaid);
+      setPaidTips(analyzeResult.isPaid ? analyzeResult.lockedTips : []);
       setErrorMessage("");
       setCanRetry(false);
     } catch (error) {
@@ -199,8 +235,39 @@ export default function Home() {
       );
       setCanRetry(true);
       setResult(null);
+      setIsPaid(false);
+      setPaidTips([]);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!result) return;
+    setPayLoading(true);
+    setPayError("");
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/confirm-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: result.orderId }),
+      });
+      const data = (await res.json()) as { success?: boolean; lockedTips?: LockedTip[] };
+
+      if (res.ok && data.success) {
+        setPaidTips(data.lockedTips ?? []);
+        setIsPaid(true);
+        setResult((current) => (current ? { ...current, isPaid: true } : current));
+        setShowPayModal(false);
+      } else {
+        setPayError("\u9a8c\u8bc1\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
+      }
+    } catch {
+      setPayError("\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
+    } finally {
+      setPayLoading(false);
     }
   };
 
@@ -422,42 +489,67 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="relative overflow-hidden rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5">
+            <section className="rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold">
                   {"\u6df1\u5ea6\u5206\u6790\u62a5\u544a"}
                 </h2>
-                <span className="rounded-full border border-amber-400/30 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">
-                  {"\u4ed8\u8d39"}
-                </span>
+                {isPaid ? (
+                  <span className="rounded-full border border-emerald-400/30 bg-emerald-400/15 px-3 py-1 text-xs font-medium text-emerald-200">
+                    {"\u5df2\u89e3\u9501"}
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-amber-400/30 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">
+                    {"\u4ed8\u8d39"}
+                  </span>
+                )}
               </div>
 
-              <div className="relative mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-4">
-                <div className="space-y-3 blur-sm select-none">
-                  {result.lockedTips.map((tip, index) => (
+              {isPaid ? (
+                <div className="mt-4 flex flex-col gap-3">
+                  {paidTips.map((tip, index) => (
                     <div
-                      key={`${index + 1}-${tip}`}
-                      className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70"
+                      key={`${index + 1}-${tip.title}`}
+                      className="rounded-2xl border border-emerald-300/15 bg-black/20 p-4"
                     >
-                      {tip}
+                      <p className="text-sm font-semibold text-emerald-200">{tip.title}</p>
+                      <p className="mt-2 text-sm leading-6 text-neutral-200">{tip.content}</p>
                     </div>
                   ))}
                 </div>
-
-                <div className="absolute inset-0 bg-neutral-950/45" />
-
-                <div className="absolute inset-0 flex items-center justify-center px-6">
-                  <button
-                    type="button"
-                    className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-neutral-950 shadow-lg shadow-black/30 transition hover:bg-amber-50"
-                    onClick={() =>
-                      window.alert("\u529f\u80fd\u5373\u5c06\u4e0a\u7ebf\uff0c\u656c\u8bf7\u671f\u5f85")
-                    }
-                  >
-                    {"\u89e3\u9501\u5b8c\u6574\u5efa\u8bae \u00a59.9"}
-                  </button>
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="mt-4 flex flex-col gap-3">
+                    {result.lockedTips.map((tip, index) => (
+                      <div
+                        key={`${index + 1}-${tip.title}`}
+                        className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                      >
+                        <p className="text-sm font-semibold text-amber-100">{tip.title}</p>
+                        <p className="mt-2 text-sm leading-6 text-white/75 blur-sm select-none">
+                          {tip.content ||
+                            "\u652f\u4ed8\u540e\u53ef\u67e5\u770b\u5b8c\u6574\u4e2a\u6027\u5316\u5efa\u8bae\u5185\u5bb9\uff0c\u5305\u542b\u5177\u4f53\u6267\u884c\u65b9\u6cd5\u3001\u539f\u56e0\u8bf4\u660e\u4e0e\u6548\u679c\u9884\u671f\u3002"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-5">
+                    <button
+                      type="button"
+                      className="w-full rounded-full bg-white px-5 py-3 text-sm font-semibold text-neutral-950 shadow-lg shadow-black/30 transition hover:bg-amber-50"
+                      onClick={() => {
+                        setPayError("");
+                        setShowPayModal(true);
+                      }}
+                    >
+                      {"\u89e3\u9501\u5b8c\u6574\u5efa\u8bae \u00a59.9"}
+                    </button>
+                    <p className="mt-2 text-center text-xs text-amber-100/80">
+                      {"\u652f\u4ed8\u540e\u5373\u53ef\u67e5\u770b 5 \u6761\u6df1\u5ea6\u4e2a\u6027\u5316\u5efa\u8bae"}
+                    </p>
+                  </div>
+                </>
+              )}
             </section>
 
             <button
@@ -470,6 +562,73 @@ export default function Home() {
           </>
         )}
       </div>
+
+      {showPayModal && result ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => {
+            setShowPayModal(false);
+          }}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-3xl bg-white p-6 text-neutral-950 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="rounded-full p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700"
+                onClick={() => {
+                  setShowPayModal(false);
+                }}
+              >
+                X
+              </button>
+            </div>
+
+            <h2 className="text-center text-xl font-semibold text-neutral-950">
+              {"\u89e3\u9501\u5b8c\u6574\u5206\u6790\u5efa\u8bae"}
+            </h2>
+            <p className="mt-3 text-center text-4xl font-bold text-emerald-600">
+              {"\u00a59.9"}
+            </p>
+
+            <div className="mt-5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/alipay-qr.png"
+                alt="Alipay QR code"
+                className="mx-auto w-[200px]"
+              />
+            </div>
+
+            <p className="mt-4 text-center text-sm text-neutral-600">
+              {"\u8bf7\u7528\u652f\u4ed8\u5b9d\u626b\u7801\u652f\u4ed8 9.9 \u5143"}
+            </p>
+            <p className="mt-2 text-center text-xs text-neutral-400">
+              {"\u8ba2\u5355\u53f7\uff1a"}
+              {result.orderId}
+            </p>
+
+            <button
+              type="button"
+              className="mt-5 w-full rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-300"
+              onClick={handleConfirmPayment}
+              disabled={payLoading}
+            >
+              {payLoading ? "\u9a8c\u8bc1\u4e2d..." : "\u6211\u5df2\u5b8c\u6210\u652f\u4ed8"}
+            </button>
+
+            {payError ? (
+              <p className="mt-3 text-center text-sm text-red-500">{payError}</p>
+            ) : null}
+
+            <p className="mt-4 text-center text-xs text-neutral-500">
+              {"\u652f\u4ed8\u9047\u5230\u95ee\u9898\uff1f\u8054\u7cfb\u5fae\u4fe1\uff1amirrorscore_support"}
+            </p>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
