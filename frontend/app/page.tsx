@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { QRCodeSVG as QRCode } from "qrcode.react";
 
 type DetailItem = {
   score: number;
@@ -47,6 +48,7 @@ const LOADING_MESSAGES = [
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [isDragging, setIsDragging] = useState(false);
@@ -59,8 +61,11 @@ export default function Home() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [isPaid, setIsPaid] = useState(false);
   const [paidTips, setPaidTips] = useState<LockedTip[]>([]);
-  const [payLoading, setPayLoading] = useState(false);
-  const [payError, setPayError] = useState("");
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState("");
+  const [paySuccess, setPaySuccess] = useState(false);
+  const [qrExpired, setQrExpired] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -69,6 +74,14 @@ export default function Home() {
       }
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isSubmitting) return;
@@ -105,6 +118,13 @@ export default function Home() {
     return "";
   };
 
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
+
   const resetToUpload = () => {
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
@@ -119,8 +139,12 @@ export default function Home() {
     setIsPaid(false);
     setPaidTips([]);
     setShowPayModal(false);
-    setPayLoading(false);
-    setPayError("");
+    stopPolling();
+    setQrCodeUrl("");
+    setQrError("");
+    setPaySuccess(false);
+    setQrExpired(false);
+    setQrLoading(false);
   };
 
   const updateSelectedFile = (file: File) => {
@@ -133,8 +157,12 @@ export default function Home() {
       setIsPaid(false);
       setPaidTips([]);
       setShowPayModal(false);
-      setPayLoading(false);
-      setPayError("");
+      stopPolling();
+      setQrCodeUrl("");
+      setQrError("");
+      setPaySuccess(false);
+      setQrExpired(false);
+      setQrLoading(false);
 
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
@@ -156,8 +184,12 @@ export default function Home() {
     setIsPaid(false);
     setPaidTips([]);
     setShowPayModal(false);
-    setPayLoading(false);
-    setPayError("");
+    stopPolling();
+    setQrCodeUrl("");
+    setQrError("");
+    setPaySuccess(false);
+    setQrExpired(false);
+    setQrLoading(false);
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -195,8 +227,12 @@ export default function Home() {
     setShowPayModal(false);
     setIsPaid(false);
     setPaidTips([]);
-    setPayLoading(false);
-    setPayError("");
+    stopPolling();
+    setQrCodeUrl("");
+    setQrError("");
+    setPaySuccess(false);
+    setQrExpired(false);
+    setQrLoading(false);
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -242,32 +278,84 @@ export default function Home() {
     }
   };
 
-  const handleConfirmPayment = async () => {
+  const handleOpenPayModal = async () => {
     if (!result) return;
-    setPayLoading(true);
-    setPayError("");
+
+    stopPolling();
+    setShowPayModal(true);
+    setQrLoading(true);
+    setQrError("");
+    setQrExpired(false);
+    setPaySuccess(false);
+    setQrCodeUrl("");
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/confirm-payment`, {
+      const res = await fetch(`${apiUrl}/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId: result.orderId }),
       });
-      const data = (await res.json()) as { success?: boolean; lockedTips?: LockedTip[] };
+      const data = (await res.json()) as {
+        success?: boolean;
+        isPaid?: boolean;
+        qrCode?: string;
+      };
 
       if (res.ok && data.success) {
-        setPaidTips(data.lockedTips ?? []);
-        setIsPaid(true);
-        setResult((current) => (current ? { ...current, isPaid: true } : current));
-        setShowPayModal(false);
+        if (data.isPaid) {
+          setIsPaid(true);
+          setPaidTips(result.lockedTips);
+          setResult((current) => (current ? { ...current, isPaid: true } : current));
+          setShowPayModal(false);
+          return;
+        }
+
+        if (!data.qrCode) {
+          setQrError("\u521b\u5efa\u8ba2\u5355\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5");
+          return;
+        }
+
+        setQrCodeUrl(data.qrCode);
+
+        let elapsed = 0;
+        pollTimerRef.current = setInterval(async () => {
+          elapsed += 3;
+          if (elapsed >= 60) {
+            stopPolling();
+            setQrExpired(true);
+            return;
+          }
+
+          try {
+            const response = await fetch(`${apiUrl}/check-payment/${result.orderId}`);
+            const pollData = (await response.json()) as {
+              isPaid?: boolean;
+              lockedTips?: LockedTip[];
+            };
+
+            if (pollData.isPaid) {
+              stopPolling();
+              setPaidTips(pollData.lockedTips ?? []);
+              setIsPaid(true);
+              setResult((current) => (current ? { ...current, isPaid: true } : current));
+              setPaySuccess(true);
+              setTimeout(() => {
+                setShowPayModal(false);
+                setPaySuccess(false);
+              }, 2000);
+            }
+          } catch {
+            // Ignore transient polling failures and keep waiting.
+          }
+        }, 3000);
       } else {
-        setPayError("\u9a8c\u8bc1\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
+        setQrError("\u521b\u5efa\u8ba2\u5355\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5");
       }
     } catch {
-      setPayError("\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
+      setQrError("\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u91cd\u8bd5");
     } finally {
-      setPayLoading(false);
+      setQrLoading(false);
     }
   };
 
@@ -537,10 +625,7 @@ export default function Home() {
                     <button
                       type="button"
                       className="w-full rounded-full bg-white px-5 py-3 text-sm font-semibold text-neutral-950 shadow-lg shadow-black/30 transition hover:bg-amber-50"
-                      onClick={() => {
-                        setPayError("");
-                        setShowPayModal(true);
-                      }}
+                      onClick={handleOpenPayModal}
                     >
                       {"\u89e3\u9501\u5b8c\u6574\u5efa\u8bae \u00a59.9"}
                     </button>
@@ -567,11 +652,12 @@ export default function Home() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
           onClick={() => {
+            stopPolling();
             setShowPayModal(false);
           }}
         >
           <div
-            className="mx-4 w-full max-w-sm rounded-3xl bg-white p-6 text-neutral-950 shadow-2xl"
+            className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 text-neutral-900 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex justify-end">
@@ -579,6 +665,7 @@ export default function Home() {
                 type="button"
                 className="rounded-full p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700"
                 onClick={() => {
+                  stopPolling();
                   setShowPayModal(false);
                 }}
               >
@@ -587,41 +674,65 @@ export default function Home() {
             </div>
 
             <h2 className="text-center text-xl font-semibold text-neutral-950">
-              {"\u89e3\u9501\u5b8c\u6574\u5206\u6790\u5efa\u8bae"}
+              {"\u652f\u4ed8\u5b9d\u626b\u7801\u652f\u4ed8"}
             </h2>
             <p className="mt-3 text-center text-4xl font-bold text-emerald-600">
               {"\u00a59.9"}
             </p>
 
-            <div className="mt-5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/alipay-qr.png"
-                alt="Alipay QR code"
-                className="mx-auto w-[200px]"
-              />
+            <div className="mx-auto mt-5 flex h-[200px] w-[200px] items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50">
+              {qrLoading ? (
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-500" />
+              ) : qrError ? (
+                <div className="px-4 text-center">
+                  <p className="text-sm text-red-500">{qrError}</p>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-full bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700"
+                    onClick={handleOpenPayModal}
+                  >
+                    {"\u91cd\u8bd5"}
+                  </button>
+                </div>
+              ) : qrExpired ? (
+                <div className="px-4 text-center">
+                  <p className="text-sm text-neutral-700">
+                    {"\u4e8c\u7ef4\u7801\u5df2\u8fc7\u671f"}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-full bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700"
+                    onClick={handleOpenPayModal}
+                  >
+                    {"\u91cd\u65b0\u751f\u6210"}
+                  </button>
+                </div>
+              ) : paySuccess ? (
+                <div className="text-center text-emerald-600">
+                  <div className="text-5xl font-bold">{"\u2713"}</div>
+                  <p className="mt-3 text-sm font-medium">
+                    {"\u652f\u4ed8\u6210\u529f\uff01\u5efa\u8bae\u5df2\u89e3\u9501"}
+                  </p>
+                </div>
+              ) : qrCodeUrl ? (
+                <QRCode value={qrCodeUrl} size={200} />
+              ) : (
+                <p className="px-4 text-center text-sm text-neutral-500">
+                  {"\u6b63\u5728\u51c6\u5907\u4e8c\u7ef4\u7801..."}
+                </p>
+              )}
             </div>
 
             <p className="mt-4 text-center text-sm text-neutral-600">
-              {"\u8bf7\u7528\u652f\u4ed8\u5b9d\u626b\u7801\u652f\u4ed8 9.9 \u5143"}
+              {"\u8bf7\u6253\u5f00\u652f\u4ed8\u5b9d\u626b\u63cf\u4e8c\u7ef4\u7801"}
+            </p>
+            <p className="mt-2 text-center text-xs text-neutral-400">
+              {"\u652f\u4ed8\u5b8c\u6210\u540e\u5c06\u81ea\u52a8\u89e3\u9501\uff0c\u65e0\u9700\u624b\u52a8\u786e\u8ba4"}
             </p>
             <p className="mt-2 text-center text-xs text-neutral-400">
               {"\u8ba2\u5355\u53f7\uff1a"}
               {result.orderId}
             </p>
-
-            <button
-              type="button"
-              className="mt-5 w-full rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-300"
-              onClick={handleConfirmPayment}
-              disabled={payLoading}
-            >
-              {payLoading ? "\u9a8c\u8bc1\u4e2d..." : "\u6211\u5df2\u5b8c\u6210\u652f\u4ed8"}
-            </button>
-
-            {payError ? (
-              <p className="mt-3 text-center text-sm text-red-500">{payError}</p>
-            ) : null}
 
             <p className="mt-4 text-center text-xs text-neutral-500">
               {"\u652f\u4ed8\u9047\u5230\u95ee\u9898\uff1f\u8054\u7cfb\u5fae\u4fe1\uff1amirrorscore_support"}

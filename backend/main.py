@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-import os
 import base64
 import json
-import uuid
+import os
 import time
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+import uuid
+
+from alipay_service import create_payment, query_payment, verify_payment
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from openai import OpenAI
 
 app = FastAPI()
@@ -23,7 +26,7 @@ analysis_store = {}
 
 client = OpenAI(
     api_key=os.getenv("DASHSCOPE_API_KEY", ""),
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
 ANALYSIS_PROMPT = """你是一位拥有20年经验的面部美学分析师，以直言不讳和精准判断著称。你的评分必须绝对客观、有区分度，严禁礼貌性打分。
@@ -127,14 +130,21 @@ async def analyze_face(file: UploadFile = File(...)):
     try:
         response = client.chat.completions.create(
             model="qwen-vl-max",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:{file.content_type};base64,{base64_image}"}},
-                    {"type": "text", "text": ANALYSIS_PROMPT}
-                ]
-            }],
-            max_tokens=2000
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{file.content_type};base64,{base64_image}"
+                            },
+                        },
+                        {"type": "text", "text": ANALYSIS_PROMPT},
+                    ],
+                }
+            ],
+            max_tokens=2000,
         )
 
         result_text = response.choices[0].message.content.strip()
@@ -150,10 +160,13 @@ async def analyze_face(file: UploadFile = File(...)):
         analysis_store[order_id] = {
             "result": result.copy(),
             "isPaid": False,
-            "created": time.time()
+            "created": time.time(),
         }
         safe_result = dict(result)
-        safe_result["lockedTips"] = [{"title": tip.get("title", f"付费建议 {i+1}"), "content": ""} for i, tip in enumerate(result.get("lockedTips", []))]
+        safe_result["lockedTips"] = [
+            {"title": tip.get("title", f"付费建议 {i + 1}"), "content": ""}
+            for i, tip in enumerate(result.get("lockedTips", []))
+        ]
         return safe_result
 
     except json.JSONDecodeError:
@@ -169,7 +182,10 @@ async def confirm_payment(request: Request):
     if order_id not in analysis_store:
         raise HTTPException(status_code=404, detail="订单不存在或已过期")
     analysis_store[order_id]["isPaid"] = True
-    return {"success": True, "lockedTips": analysis_store[order_id]["result"].get("lockedTips", [])}
+    return {
+        "success": True,
+        "lockedTips": analysis_store[order_id]["result"].get("lockedTips", []),
+    }
 
 
 @app.get("/payment-status/{order_id}")
@@ -177,6 +193,66 @@ async def payment_status(order_id: str):
     if order_id not in analysis_store:
         raise HTTPException(status_code=404, detail="订单不存在")
     return {"isPaid": analysis_store[order_id]["isPaid"]}
+
+
+@app.post("/create-order")
+async def create_order(request: Request):
+    body = await request.json()
+    order_id = body.get("orderId", "")
+    if order_id not in analysis_store:
+        raise HTTPException(status_code=404, detail="分析结果不存在或已过期")
+    if analysis_store[order_id]["isPaid"]:
+        return {"success": True, "isPaid": True}
+
+    trade_no = f"MS{order_id}{int(time.time())}"
+    analysis_store[order_id]["tradeNo"] = trade_no
+    result = create_payment(
+        order_id=trade_no,
+        amount="9.90",
+        subject="MirrorScore 深度面部分析建议",
+    )
+    if result.get("qr_code"):
+        return {"success": True, "qrCode": result["qr_code"], "tradeNo": trade_no}
+    raise HTTPException(
+        status_code=500,
+        detail=f"创建订单失败：{result.get('msg', '未知错误')}",
+    )
+
+
+@app.post("/alipay/notify")
+async def alipay_notify(request: Request):
+    form_data = await request.form()
+    data = dict(form_data)
+    if not verify_payment(data):
+        return PlainTextResponse("fail")
+
+    trade_status = data.get("trade_status", "")
+    out_trade_no = data.get("out_trade_no", "")
+    if trade_status in ("TRADE_SUCCESS", "TRADE_FINISHED"):
+        for order_id, store in analysis_store.items():
+            if store.get("tradeNo") == out_trade_no:
+                store["isPaid"] = True
+                break
+    return PlainTextResponse("success")
+
+
+@app.get("/check-payment/{order_id}")
+async def check_payment(order_id: str):
+    if order_id not in analysis_store:
+        raise HTTPException(status_code=404, detail="订单不存在")
+
+    store = analysis_store[order_id]
+    if store["isPaid"]:
+        return {"isPaid": True, "lockedTips": store["result"].get("lockedTips", [])}
+
+    trade_no = store.get("tradeNo", "")
+    if trade_no:
+        qr = query_payment(trade_no)
+        if qr.get("trade_status") in ("TRADE_SUCCESS", "TRADE_FINISHED"):
+            store["isPaid"] = True
+            return {"isPaid": True, "lockedTips": store["result"].get("lockedTips", [])}
+
+    return {"isPaid": False}
 
 
 @app.get("/")
