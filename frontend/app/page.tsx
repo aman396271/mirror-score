@@ -627,7 +627,7 @@ export default function Home() {
                       className="w-full rounded-full bg-white px-5 py-3 text-sm font-semibold text-neutral-950 shadow-lg shadow-black/30 transition hover:bg-amber-50"
                       onClick={handleOpenPayModal}
                     >
-                      {"\u89e3\u9501\u5b8c\u6574\u5efa\u8bae \u00a59.9"}
+                      {"\u89e3\u9501\u5b8c\u6574\u5efa\u8bae \u00a50.1"}
                     </button>
                     <p className="mt-2 text-center text-xs text-amber-100/80">
                       {"\u652f\u4ed8\u540e\u5373\u53ef\u67e5\u770b 5 \u6761\u6df1\u5ea6\u4e2a\u6027\u5316\u5efa\u8bae"}
@@ -677,7 +677,7 @@ export default function Home() {
               {"\u652f\u4ed8\u5b9d\u626b\u7801\u652f\u4ed8"}
             </h2>
             <p className="mt-3 text-center text-4xl font-bold text-emerald-600">
-              {"\u00a59.9"}
+              {"\u00a50.1"}
             </p>
 
             <div className="mx-auto mt-5 flex h-[200px] w-[200px] items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50">

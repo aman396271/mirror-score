@@ -208,7 +208,7 @@ async def create_order(request: Request):
     analysis_store[order_id]["tradeNo"] = trade_no
     result = create_payment(
         order_id=trade_no,
-        amount="9.90",
+        amount="0.10",
         subject="MirrorScore 深度面部分析建议",
     )
     if result.get("qr_code"):
