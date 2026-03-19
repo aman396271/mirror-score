@@ -39,7 +39,7 @@ ANALYSIS_PROMPT = """你是一位拥有20年经验的面部美学分析师，以
 - 4.0-4.9：略低于平均，有明显改进空间
 - 3.0-3.9：明显不足，需要重点改善
 - 3.0 以下：严重不足
-- 严禁所有项目都给 7-8 分的“和稀泥”评分
+- 严禁所有项目都给 7-8 分的"和稀泥"评分
 - 每个人至少要有 2 个项目低于 6 分，至少 1 个项目高于 8 分，除非确实整体非常平均
 - totalScore 必须是各项真实加权平均，不要手动拉高
 
@@ -49,46 +49,14 @@ ANALYSIS_PROMPT = """你是一位拥有20年经验的面部美学分析师，以
   "ageRange": "24-28",
   "gender": "female",
   "details": {
-    "eyes": {
-      "score": 7.2,
-      "label": "眼睛",
-      "comment": "具体描述眼型、大小、双眼皮或单眼皮、神采，必须同时说明优点和缺点"
-    },
-    "eyeDistance": {
-      "score": 5.5,
-      "label": "眼距",
-      "comment": "精准分析眼距与脸宽比例，是偏宽、偏窄还是标准，以及对整体观感的影响"
-    },
-    "nose": {
-      "score": 4.8,
-      "label": "鼻子",
-      "comment": "分析鼻梁高度、鼻翼宽度、鼻尖形态，以及与面部整体的协调性"
-    },
-    "mouth": {
-      "score": 6.3,
-      "label": "嘴唇",
-      "comment": "分析唇形、厚薄、比例和与下巴的关系"
-    },
-    "faceShape": {
-      "score": 5.9,
-      "label": "脸型",
-      "comment": "判断脸型类别并分析下颌线、颧骨、太阳穴等结构特点"
-    },
-    "skinTone": {
-      "score": 6.8,
-      "label": "肤色与肤质",
-      "comment": "分析肤色均匀度、光泽感、是否有明显瑕疵、暗沉或色斑"
-    },
-    "proportion": {
-      "score": 5.2,
-      "label": "五官比例",
-      "comment": "用三庭五眼等标准分析比例，明确指出偏离项和偏离程度"
-    },
-    "hairStyle": {
-      "score": 6.0,
-      "label": "发型适配",
-      "comment": "分析当前发型与脸型的匹配度，是否扬长避短"
-    }
+    "eyes": {"score": 7.2, "label": "眼睛", "comment": "具体描述眼型、大小、双眼皮或单眼皮、神采，必须同时说明优点和缺点"},
+    "eyeDistance": {"score": 5.5, "label": "眼距", "comment": "精准分析眼距与脸宽比例，是偏宽、偏窄还是标准，以及对整体观感的影响"},
+    "nose": {"score": 4.8, "label": "鼻子", "comment": "分析鼻梁高度、鼻翼宽度、鼻尖形态，以及与面部整体的协调性"},
+    "mouth": {"score": 6.3, "label": "嘴唇", "comment": "分析唇形、厚薄、比例和与下巴的关系"},
+    "faceShape": {"score": 5.9, "label": "脸型", "comment": "判断脸型类别并分析下颌线、颧骨、太阳穴等结构特点"},
+    "skinTone": {"score": 6.8, "label": "肤色与肤质", "comment": "分析肤色均匀度、光泽感、是否有明显瑕疵、暗沉或色斑"},
+    "proportion": {"score": 5.2, "label": "五官比例", "comment": "用三庭五眼等标准分析比例，明确指出偏离项和偏离程度"},
+    "hairStyle": {"score": 6.0, "label": "发型适配", "comment": "分析当前发型与脸型的匹配度，是否扬长避短"}
   },
   "freeTips": [
     "第一条建议：必须具体可执行，例如直接指出应调整的发型、刘海、修容或拍照方式",
@@ -112,6 +80,65 @@ ANALYSIS_PROMPT = """你是一位拥有20年经验的面部美学分析师，以
 - 每条 lockedTip 的 content 必须写成不少于50字的具体建议，必须给出明确方法、原因或预期效果
 - 请用中文回答"""
 
+# 亮点/短板模糊描述模板
+STRONG_TEMPLATES = {
+    "eyes": "你的眼睛是一大亮点，眼型条件出众",
+    "eyeDistance": "你的眼距比例协调，五官平衡感好",
+    "nose": "你的鼻子条件不错，与面部协调度高",
+    "mouth": "你的唇形自然好看，是加分项",
+    "faceShape": "你的脸型轮廓有优势，线条流畅",
+    "skinTone": "你的肤色和肤质状态是明显优势",
+    "proportion": "你的五官比例协调，整体感好",
+    "hairStyle": "你目前的发型很适合脸型",
+}
+
+WEAK_TEMPLATES = {
+    "eyes": "眼部细节还有优化空间，影响整体精神感",
+    "eyeDistance": "眼距比例略有失衡，拉低了五官协调度",
+    "nose": "鼻部条件有明显提升空间，是关键短板",
+    "mouth": "唇形比例需要调整，影响下半脸的协调感",
+    "faceShape": "脸型轮廓存在可改善的地方，影响整体印象",
+    "skinTone": "肤色肤质问题较为明显，拉低整体颜值",
+    "proportion": "五官比例存在偏差，是整体减分项",
+    "hairStyle": "现有发型与脸型匹配度不足，错失了扬长避短的机会",
+}
+
+
+def get_score_level(score: float) -> dict:
+    if score >= 8.0:
+        return {"scoreLevel": "excellent", "levelColor": "#9C27B0", "levelLabel": "卓越", "levelDescription": "你的外貌条件非常出众，属于人群中的佼佼者"}
+    elif score >= 7.0:
+        return {"scoreLevel": "high", "levelColor": "#4CAF50", "levelLabel": "优秀", "levelDescription": "你的综合表现优于大多数人，但仍有明显的提升空间"}
+    elif score >= 5.5:
+        return {"scoreLevel": "medium", "levelColor": "#FF9800", "levelLabel": "中等偏上", "levelDescription": "你的底子不差，通过针对性调整可以有显著提升"}
+    elif score >= 4.0:
+        return {"scoreLevel": "average", "levelColor": "#2196F3", "levelLabel": "普通", "levelDescription": "你有不少可以优化的方面，改善后提升会很明显"}
+    else:
+        return {"scoreLevel": "low", "levelColor": "#F44336", "levelLabel": "需要改善", "levelDescription": "不用担心，每个人都有变美的潜力，关键是找到方向"}
+
+
+def build_teaser(result: dict) -> dict:
+    details = result.get("details", {})
+    sorted_items = sorted(details.items(), key=lambda x: x[1].get("score", 0), reverse=True)
+    strong_keys = [k for k, _ in sorted_items[:2]]
+    weak_keys = [k for k, _ in sorted_items[-2:]]
+    strong_points = [STRONG_TEMPLATES.get(k, f"你的{details[k]['label']}条件较好") for k in strong_keys]
+    weak_points = [WEAK_TEMPLATES.get(k, f"你的{details[k]['label']}还有提升空间") for k in weak_keys]
+    free_tips = result.get("freeTips", [])
+    one_free_tip = free_tips[0] if free_tips else "尝试调整拍照角度，可以让你的优势更突出"
+    return {"strongPoints": strong_points, "weakPoints": weak_points, "oneFreeTip": one_free_tip}
+
+
+def build_full_result(order_id: str) -> dict:
+    full = analysis_store[order_id]["result"]
+    return {
+        "isPaid": True,
+        "totalScore": full.get("totalScore"),
+        "details": full.get("details", {}),
+        "freeTips": full.get("freeTips", []),
+        "lockedTips": full.get("lockedTips", []),
+    }
+
 
 @app.post("/analyze")
 async def analyze_face(file: UploadFile = File(...)):
@@ -130,20 +157,10 @@ async def analyze_face(file: UploadFile = File(...)):
     try:
         response = client.chat.completions.create(
             model="qwen-vl-max",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{file.content_type};base64,{base64_image}"
-                            },
-                        },
-                        {"type": "text", "text": ANALYSIS_PROMPT},
-                    ],
-                }
-            ],
+            messages=[{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{file.content_type};base64,{base64_image}"}},
+                {"type": "text", "text": ANALYSIS_PROMPT},
+            ]}],
             max_tokens=2000,
         )
 
@@ -155,18 +172,27 @@ async def analyze_face(file: UploadFile = File(...)):
 
         result = json.loads(result_text)
         order_id = str(uuid.uuid4())[:8]
-        result["orderId"] = order_id
-        result["isPaid"] = False
-        analysis_store[order_id] = {
-            "result": result.copy(),
+        analysis_store[order_id] = {"result": result, "isPaid": False, "created": time.time()}
+
+        # 返回安全结果（隐藏分数）
+        level_info = get_score_level(result.get("totalScore", 5.0))
+        teaser = build_teaser(result)
+        details = result.get("details", {})
+        locked_tips = result.get("lockedTips", [])
+
+        safe_result = {
+            "orderId": order_id,
             "isPaid": False,
-            "created": time.time(),
+            "ageRange": result.get("ageRange", "--"),
+            "gender": result.get("gender", "--"),
+            "teaser": teaser,
+            "lockedContent": {
+                "itemCount": len(details),
+                "tipCount": len(result.get("freeTips", [])) + len(locked_tips),
+                "message": f"解锁后可查看：精确分数 + {len(details)}项逐维打分 + {len(locked_tips)}条深度优化建议",
+            },
         }
-        safe_result = dict(result)
-        safe_result["lockedTips"] = [
-            {"title": tip.get("title", f"付费建议 {i + 1}"), "content": ""}
-            for i, tip in enumerate(result.get("lockedTips", []))
-        ]
+        safe_result.update(level_info)
         return safe_result
 
     except json.JSONDecodeError:
@@ -182,10 +208,7 @@ async def confirm_payment(request: Request):
     if order_id not in analysis_store:
         raise HTTPException(status_code=404, detail="订单不存在或已过期")
     analysis_store[order_id]["isPaid"] = True
-    return {
-        "success": True,
-        "lockedTips": analysis_store[order_id]["result"].get("lockedTips", []),
-    }
+    return {"success": True, **build_full_result(order_id)}
 
 
 @app.get("/payment-status/{order_id}")
@@ -202,21 +225,14 @@ async def create_order(request: Request):
     if order_id not in analysis_store:
         raise HTTPException(status_code=404, detail="分析结果不存在或已过期")
     if analysis_store[order_id]["isPaid"]:
-        return {"success": True, "isPaid": True}
+        return {"success": True, **build_full_result(order_id)}
 
     trade_no = f"MS{order_id}{int(time.time())}"
     analysis_store[order_id]["tradeNo"] = trade_no
-    result = create_payment(
-        order_id=trade_no,
-        amount="0.10",
-        subject="MirrorScore 深度面部分析建议",
-    )
+    result = create_payment(order_id=trade_no, amount="0.10", subject="MirrorScore 深度面部分析报告")
     if result.get("qr_code"):
         return {"success": True, "qrCode": result["qr_code"], "tradeNo": trade_no}
-    raise HTTPException(
-        status_code=500,
-        detail=f"创建订单失败：{result.get('msg', '未知错误')}",
-    )
+    raise HTTPException(status_code=500, detail=f"创建订单失败：{result.get('msg', '未知错误')}")
 
 
 @app.post("/alipay/notify")
@@ -225,7 +241,6 @@ async def alipay_notify(request: Request):
     data = dict(form_data)
     if not verify_payment(data):
         return PlainTextResponse("fail")
-
     trade_status = data.get("trade_status", "")
     out_trade_no = data.get("out_trade_no", "")
     if trade_status in ("TRADE_SUCCESS", "TRADE_FINISHED"):
@@ -240,17 +255,17 @@ async def alipay_notify(request: Request):
 async def check_payment(order_id: str):
     if order_id not in analysis_store:
         raise HTTPException(status_code=404, detail="订单不存在")
-
     store = analysis_store[order_id]
+
     if store["isPaid"]:
-        return {"isPaid": True, "lockedTips": store["result"].get("lockedTips", [])}
+        return build_full_result(order_id)
 
     trade_no = store.get("tradeNo", "")
     if trade_no:
         qr = query_payment(trade_no)
         if qr.get("trade_status") in ("TRADE_SUCCESS", "TRADE_FINISHED"):
             store["isPaid"] = True
-            return {"isPaid": True, "lockedTips": store["result"].get("lockedTips", [])}
+            return build_full_result(order_id)
 
     return {"isPaid": False}
 
@@ -268,6 +283,5 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
