@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type DragEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { QRCodeSVG as QRCode } from "qrcode.react";
 
 type SafeResult = {
@@ -55,12 +62,22 @@ const DETAIL_ORDER = [
   "hairStyle",
 ];
 const LOADING_MESSAGES = [
-  "AI 正在识别五官结构与面部轮廓…",
-  "正在评估上镜气质、比例与视觉年龄…",
-  "正在提炼亮点与关键短板…",
-  "正在生成适合你的改善建议…",
-  "即将完成，请稍候…",
+  "AI 正在研究你的五官比例…",
+  "正在分析最适合你的风格方向…",
+  "好的分析需要一点时间，就像好咖啡需要慢慢萃取 ☕",
+  "正在匹配你的个性化提升建议…",
+  "你的专属报告即将生成…",
+  "最后润色中，马上就好 ✨",
 ];
+const REVEAL_SEQUENCE = [
+  { key: "header", delay: 0 },
+  { key: "basicInfo", delay: 400 },
+  { key: "teaser", delay: 900 },
+  { key: "freeTip", delay: 1400 },
+  { key: "cta", delay: 2000 },
+] as const;
+
+type VisibleSectionKey = (typeof REVEAL_SEQUENCE)[number]["key"];
 
 const getApiUrl = (path: string) => `${API_BASE}${path}`;
 
@@ -75,8 +92,8 @@ const getErrorMessage = (payload: unknown, fallback: string) => {
 };
 
 const getGenderLabel = (gender: string) => {
-  if (gender === "female") return "女";
-  if (gender === "male") return "男";
+  if (gender === "female") return "女性";
+  if (gender === "male") return "男性";
   return gender;
 };
 
@@ -87,6 +104,42 @@ const getBarColor = (score: number, accent: string) => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function RevealSection({
+  show,
+  className,
+  children,
+}: {
+  show: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [mounted, setMounted] = useState(show);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (show) {
+      setMounted(true);
+      const frame = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(frame);
+    }
+
+    setVisible(false);
+    const timer = setTimeout(() => setMounted(false), 500);
+    return () => clearTimeout(timer);
+  }, [show]);
+
+  if (!mounted) return null;
+
+  return (
+    <div
+      className={className}
+      style={{ opacity: visible ? 1 : 0, transition: "opacity 0.5s" }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +162,7 @@ export default function Home() {
   const [scoreDisplay, setScoreDisplay] = useState(0);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [visibleSections, setVisibleSections] = useState<Set<VisibleSectionKey>>(new Set());
 
   const accentColor = safeResult?.levelColor ?? "#f59e0b";
   const genderLabel = safeResult ? getGenderLabel(safeResult.gender) : "--";
@@ -207,6 +261,29 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [fullResult]);
 
+  useEffect(() => {
+    if (!safeResult || fullResult) {
+      setVisibleSections(new Set());
+      return;
+    }
+
+    setVisibleSections(new Set());
+
+    const timers = REVEAL_SEQUENCE.map(({ key, delay }) =>
+      setTimeout(() => {
+        setVisibleSections((current) => {
+          const next = new Set(current);
+          next.add(key);
+          return next;
+        });
+      }, delay),
+    );
+
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [safeResult, fullResult]);
+
   const resetToUpload = () => {
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
@@ -226,16 +303,17 @@ export default function Home() {
     setScoreDisplay(0);
     setLoadingMessageIndex(0);
     setProgress(0);
+    setVisibleSections(new Set());
     resetPaymentState();
   };
 
   const validateFile = (file: File) => {
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      return "仅支持 JPG、PNG、WEBP 格式图片";
+      return "请上传 JPG、PNG 或 WEBP 格式的照片";
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return "图片大小不能超过 10MB";
+      return "照片大小请控制在 10MB 以内";
     }
 
     return "";
@@ -253,6 +331,7 @@ export default function Home() {
       setSafeResult(null);
       setFullResult(null);
       setScoreDisplay(0);
+      setVisibleSections(new Set());
       resetPaymentState();
       return;
     }
@@ -267,6 +346,7 @@ export default function Home() {
     setSafeResult(null);
     setFullResult(null);
     setScoreDisplay(0);
+    setVisibleSections(new Set());
     resetPaymentState();
   };
 
@@ -287,7 +367,7 @@ export default function Home() {
 
   const handleAnalyze = async () => {
     if (!selectedFile) {
-      setErrorMessage("请先上传一张清晰正脸照片");
+      setErrorMessage("先上传一张清晰自拍，我们再开始分析");
       return;
     }
 
@@ -296,6 +376,7 @@ export default function Home() {
     setSafeResult(null);
     setFullResult(null);
     setScoreDisplay(0);
+    setVisibleSections(new Set());
     resetPaymentState();
 
     try {
@@ -309,7 +390,7 @@ export default function Home() {
       const data = (await response.json()) as SafeResult | { detail?: string };
 
       if (!response.ok) {
-        throw new Error(getErrorMessage(data, "分析失败，请稍后重试"));
+        throw new Error(getErrorMessage(data, "分析暂时出了点小问题，请稍后再试"));
       }
 
       setProgress(100);
@@ -317,7 +398,7 @@ export default function Home() {
       setSafeResult(data as SafeResult);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "分析失败，请稍后重试",
+        error instanceof Error ? error.message : "分析暂时出了点小问题，请稍后再试",
       );
     } finally {
       setIsSubmitting(false);
@@ -353,7 +434,7 @@ export default function Home() {
     const data = (await response.json()) as FullResult | { isPaid?: boolean; detail?: string };
 
     if (!response.ok) {
-      throw new Error(getErrorMessage(data, "支付状态查询失败"));
+      throw new Error(getErrorMessage(data, "支付状态查询失败，请稍后重试"));
     }
 
     if ("isPaid" in data && data.isPaid) {
@@ -387,7 +468,7 @@ export default function Home() {
       const data = (await response.json()) as CreateOrderResponse;
 
       if (!response.ok) {
-        throw new Error(getErrorMessage(data, "创建订单失败，请重试"));
+        throw new Error(getErrorMessage(data, "创建订单失败，请稍后重试"));
       }
 
       if (data.isPaid) {
@@ -396,7 +477,7 @@ export default function Home() {
       }
 
       if (!data.qrCode) {
-        throw new Error("二维码生成失败，请重试");
+        throw new Error("二维码生成失败，请重新打开支付");
       }
 
       setQrCodeUrl(data.qrCode);
@@ -416,7 +497,7 @@ export default function Home() {
       }, POLL_INTERVAL);
     } catch (error) {
       setQrError(
-        error instanceof Error ? error.message : "创建订单失败，请重试",
+        error instanceof Error ? error.message : "创建订单失败，请稍后重试",
       );
     } finally {
       setQrLoading(false);
@@ -460,20 +541,23 @@ export default function Home() {
           onChange={handleFileChange}
         />
         <p className="text-xs font-medium uppercase tracking-[0.4em] text-white/45">
-          上传照片
+          自拍上传区
         </p>
         <h2
           className="mt-4 text-3xl font-semibold text-white md:text-4xl"
           style={{ fontFamily: '"Georgia", "Times New Roman", serif' }}
         >
-          先看等级，再决定是否解锁完整分数
+          每张脸都有独特魅力 ✨
         </h2>
-        <p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-stone-300">
-          拖拽或点击上传一张清晰正脸照片，系统会先展示你的综合等级、亮点和短板，再决定是否支付查看精确评分。
+        <p className="mx-auto mt-4 max-w-xl text-base leading-8 text-stone-200">
+          上传自拍，解锁你的专属颜值报告
+        </p>
+        <p className="mx-auto mt-2 max-w-xl text-sm leading-7 text-stone-400">
+          点击上传或拖拽照片到这里
         </p>
 
         <div className="mt-8 grid gap-3 text-left text-sm text-stone-300 sm:grid-cols-3">
-          {["正脸无遮挡", "光线均匀自然", "单张照片即可"].map((item) => (
+          {["正脸更清晰", "自然光更出片", "单张照片就够"].map((item) => (
             <div
               key={item}
               className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
@@ -513,7 +597,7 @@ export default function Home() {
             />
           </div>
           <div className="mt-4 flex items-center justify-between text-xs text-stone-400">
-            <span>分析通常需要 10-15 秒</span>
+            <span>通常需要 10-15 秒，请给 AI 一点点时间</span>
             <span>{Math.round(progress)}%</span>
           </div>
         </div>
@@ -524,7 +608,7 @@ export default function Home() {
           onClick={handleAnalyze}
           disabled={!selectedFile}
         >
-          开始分析
+          开始我的面部分析
         </button>
       )}
     </section>
@@ -540,34 +624,51 @@ export default function Home() {
     >
       <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-2xl">
-          <p className="text-xs font-medium uppercase tracking-[0.4em] text-white/60">
-            AI 综合评估
-          </p>
-          <h2
-            className="mt-4 text-4xl font-semibold text-white md:text-5xl"
-            style={{ fontFamily: '"Georgia", "Times New Roman", serif' }}
-          >
-            {safeResult.levelLabel}
-          </h2>
+          <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:items-center sm:text-left">
+            {previewUrl ? (
+              <Image
+                src={previewUrl}
+                alt="你的照片"
+                width={80}
+                height={80}
+                unoptimized
+                className="h-20 w-20 rounded-full border-2 border-white object-cover shadow-[0_12px_30px_rgba(0,0,0,0.25)]"
+              />
+            ) : null}
+
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.4em] text-white/60">
+                你的气质等级
+              </p>
+              <h2
+                className="mt-3 text-4xl font-semibold text-white md:text-5xl"
+                style={{ fontFamily: '"Georgia", "Times New Roman", serif' }}
+              >
+                {safeResult.levelLabel}
+              </h2>
+            </div>
+          </div>
+
           <p className="mt-4 max-w-xl text-sm leading-7 text-white/82">
             {safeResult.levelDescription}
           </p>
+
           {fullResult ? (
             <div className="mt-5 inline-flex items-center rounded-full bg-emerald-500/18 px-4 py-2 text-sm font-medium text-emerald-100">
-              ✓ 分析报告已解锁
+              你的专属颜值报告已解锁！
             </div>
           ) : null}
         </div>
 
-        <div className="min-w-[240px] rounded-[1.75rem] border border-white/15 bg-black/20 px-6 py-5 text-right backdrop-blur">
+        <div className="min-w-[240px] rounded-[1.75rem] border border-white/15 bg-black/20 px-6 py-5 text-center backdrop-blur sm:text-right">
           <p className="text-xs font-medium uppercase tracking-[0.4em] text-white/45">
-            综合分数
+            完整评分
           </p>
           <p className="mt-4 text-6xl font-semibold leading-none text-white">
             {fullResult ? scoreDisplay.toFixed(2) : "???"}
           </p>
           <p className="mt-3 text-sm text-white/72">
-            {fullResult ? "已显示完整精确评分" : "完成支付即可查看精确分数"}
+            {fullResult ? "完整评分已经为你揭晓" : "解锁后立刻揭晓你的精确评分"}
           </p>
         </div>
       </div>
@@ -578,13 +679,13 @@ export default function Home() {
     <section className="grid gap-4 sm:grid-cols-2">
       <div className="rounded-[1.75rem] border border-white/10 bg-white/6 px-5 py-5 backdrop-blur">
         <p className="text-xs font-medium uppercase tracking-[0.35em] text-white/45">
-          视觉年龄
+          视觉年龄感
         </p>
         <p className="mt-3 text-3xl font-semibold text-white">{safeResult.ageRange}</p>
       </div>
       <div className="rounded-[1.75rem] border border-white/10 bg-white/6 px-5 py-5 backdrop-blur">
         <p className="text-xs font-medium uppercase tracking-[0.35em] text-white/45">
-          性别判断
+          性别识别
         </p>
         <p className="mt-3 text-3xl font-semibold text-white">{genderLabel}</p>
       </div>
@@ -595,99 +696,107 @@ export default function Home() {
     safeResult && !fullResult ? (
       <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
         <div className="flex flex-col gap-6">
-          {renderSummaryCard}
-          {renderBasicInfo}
+          <RevealSection show={visibleSections.has("header")}>{renderSummaryCard}</RevealSection>
+          <RevealSection show={visibleSections.has("basicInfo")}>{renderBasicInfo}</RevealSection>
 
-          <section className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-xl font-semibold text-white">你的亮点</h3>
-                <span className="rounded-full border border-white/10 bg-white/8 px-3 py-1 text-xs text-white/60">
-                  可继续放大
-                </span>
+          <RevealSection show={visibleSections.has("teaser")}>
+            <section className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xl font-semibold text-white">你天然的优势</h3>
+                  <span className="rounded-full border border-white/10 bg-white/8 px-3 py-1 text-xs text-white/60">
+                    继续发光
+                  </span>
+                </div>
+                <div className="mt-5 flex flex-col gap-3">
+                  {safeResult.teaser.strongPoints.map((item) => (
+                    <div
+                      key={item}
+                      className="flex gap-3 rounded-[1.25rem] border border-white/8 bg-black/18 px-4 py-4"
+                    >
+                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs text-white/80">
+                        优
+                      </span>
+                      <p className="text-sm leading-7 text-stone-200">{item}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="mt-5 flex flex-col gap-3">
-                {safeResult.teaser.strongPoints.map((item) => (
-                  <div
-                    key={item}
-                    className="flex gap-3 rounded-[1.25rem] border border-white/8 bg-black/18 px-4 py-4"
-                  >
-                    <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs text-white/80">
-                      锁
-                    </span>
-                    <p className="text-sm leading-7 text-stone-200">{item}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
 
-            <div className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-xl font-semibold text-white">待提升</h3>
-                <span className="rounded-full border border-amber-300/25 bg-amber-200/10 px-3 py-1 text-xs text-amber-100/80">
-                  优先处理
-                </span>
+              <div className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xl font-semibold text-white">你的提升空间</h3>
+                  <span className="rounded-full border border-amber-300/25 bg-amber-200/10 px-3 py-1 text-xs text-amber-100/80">
+                    慢慢优化
+                  </span>
+                </div>
+                <div className="mt-5 flex flex-col gap-3">
+                  {safeResult.teaser.weakPoints.map((item) => (
+                    <div
+                      key={item}
+                      className="flex gap-3 rounded-[1.25rem] border border-white/8 bg-black/18 px-4 py-4"
+                    >
+                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-300/16 text-xs text-amber-100">
+                        进
+                      </span>
+                      <p className="text-sm leading-7 text-stone-200">{item}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="mt-5 flex flex-col gap-3">
-                {safeResult.teaser.weakPoints.map((item) => (
-                  <div
-                    key={item}
-                    className="flex gap-3 rounded-[1.25rem] border border-white/8 bg-black/18 px-4 py-4"
-                  >
-                    <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-300/16 text-xs text-amber-100">
-                      改
-                    </span>
-                    <p className="text-sm leading-7 text-stone-200">{item}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
+            </section>
+          </RevealSection>
         </div>
 
         <div className="flex flex-col gap-6">
-          <section className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-xl font-semibold text-white">免费建议</h3>
-              <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100">
-                已赠送
-              </span>
-            </div>
-            <p className="mt-5 text-base leading-8 text-stone-100">
-              {safeResult.teaser.oneFreeTip}
-            </p>
-            <p className="mt-4 text-sm text-stone-400">
-              还有 {Math.max(safeResult.lockedContent.tipCount - 1, 0)} 条专业建议未解锁
-            </p>
-          </section>
-
-          <section className="rounded-[1.8rem] border border-amber-300/20 bg-[linear-gradient(180deg,rgba(251,191,36,0.16),rgba(15,10,4,0.28))] p-5 backdrop-blur">
-            <button
-              type="button"
-              className="w-full rounded-full bg-amber-400 px-5 py-4 text-base font-bold text-black shadow-[0_18px_45px_rgba(251,191,36,0.24)] animate-pulse transition hover:brightness-105"
-              onClick={handleOpenPayModal}
-            >
-              解锁完整分析报告 ¥0.1
-            </button>
-            <p className="mt-4 text-sm leading-7 text-amber-50/90">
-              {safeResult.lockedContent.message}
-            </p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[1.2rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-stone-100">
-                {safeResult.lockedContent.itemCount} 项逐维打分
+          <RevealSection show={visibleSections.has("freeTip")}>
+            <section className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xl font-semibold text-white">先送你一条实用建议</h3>
+                <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100">
+                  免费试看
+                </span>
               </div>
-              <div className="rounded-[1.2rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-stone-100">
-                {safeResult.lockedContent.tipCount} 条完整建议
-              </div>
-            </div>
-          </section>
+              <p className="mt-5 text-base leading-8 text-stone-100">
+                {safeResult.teaser.oneFreeTip}
+              </p>
+              <p className="mt-4 text-sm text-stone-400">
+                还有 {Math.max(safeResult.lockedContent.tipCount - 1, 0)} 条个性化提升方案等你解锁
+              </p>
+            </section>
+          </RevealSection>
 
-          <section className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
-            <p className="text-sm text-stone-300">已有 2847 人解锁完整报告</p>
-            <p className="mt-3 text-2xl font-semibold text-white">
-              平均反馈更知道该先改哪里，提升方向更明确
-            </p>
-          </section>
+          <RevealSection show={visibleSections.has("cta")}>
+            <div className="flex flex-col gap-6">
+              <section className="rounded-[1.8rem] border border-amber-300/20 bg-[linear-gradient(180deg,rgba(251,191,36,0.16),rgba(15,10,4,0.28))] p-5 backdrop-blur">
+                <button
+                  type="button"
+                  className="w-full rounded-full bg-amber-400 px-5 py-4 text-base font-bold text-black shadow-[0_18px_45px_rgba(251,191,36,0.24)] animate-pulse transition hover:brightness-105"
+                  onClick={handleOpenPayModal}
+                >
+                  解锁我的完整颜值报告 ¥9.9
+                </button>
+                <p className="mt-4 text-sm leading-7 text-amber-50/90">
+                  比一杯咖啡还便宜，但可能改变你的自拍方式 ☕
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[1.2rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-stone-100">
+                    {safeResult.lockedContent.itemCount} 项细分维度评分
+                  </div>
+                  <div className="rounded-[1.2rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-stone-100">
+                    {safeResult.lockedContent.tipCount} 条完整提升建议
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-[1.8rem] border border-white/10 bg-white/6 p-5 backdrop-blur">
+                <p className="text-sm text-stone-300">已有 2,847 位用户解锁了完整报告</p>
+                <p className="mt-3 text-2xl font-semibold text-white">
+                  用户反馈：看完建议后，自拍好看多了
+                </p>
+              </section>
+            </div>
+          </RevealSection>
         </div>
       </div>
     ) : null;
@@ -706,7 +815,7 @@ export default function Home() {
                 className="rounded-full px-3 py-1 text-xs font-medium text-white/80"
                 style={{ backgroundColor: `${accentColor}24`, border: `1px solid ${accentColor}35` }}
               >
-                完整版
+                完整报告
               </span>
             </div>
 
@@ -748,9 +857,9 @@ export default function Home() {
           <div className="flex flex-col gap-6">
             <section className="rounded-[1.9rem] border border-white/10 bg-white/6 p-6 backdrop-blur">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-2xl font-semibold text-white">免费建议</h3>
+                <h3 className="text-2xl font-semibold text-white">立即可用的小技巧 ✨</h3>
                 <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100">
-                  3 条
+                  {fullResult.freeTips.length} 条
                 </span>
               </div>
               <div className="mt-5 flex flex-col gap-3">
@@ -770,7 +879,7 @@ export default function Home() {
 
             <section className="rounded-[1.9rem] border border-white/10 bg-white/6 p-6 backdrop-blur">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-2xl font-semibold text-white">深度建议</h3>
+                <h3 className="text-2xl font-semibold text-white">你的专属提升方案</h3>
                 <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100">
                   已解锁
                 </span>
@@ -795,7 +904,7 @@ export default function Home() {
           className="w-full rounded-full border border-white/10 bg-white/6 px-5 py-4 text-base font-semibold text-white transition hover:bg-white/10"
           onClick={resetToUpload}
         >
-          重新分析
+          换张照片再试试 →
         </button>
       </div>
     ) : null;
@@ -812,15 +921,16 @@ export default function Home() {
               className="mt-3 text-4xl font-semibold text-white md:text-5xl"
               style={{ fontFamily: '"Georgia", "Times New Roman", serif' }}
             >
-              先看等级，再解锁完整报告
+              先看见自己的亮点，再解锁完整颜值报告
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-stone-300">
-              结果页会先隐藏精确分数，仅展示等级、亮点与一条免费建议。支付后自动解锁 8 项逐维评分和完整优化方案。
+              上传自拍，先收下一份关于天然优势与风格方向的温柔分析；如果你喜欢，再解锁完整的
+              8 维评分与个性化提升方案。
             </p>
           </div>
 
           <div className="rounded-full border border-white/10 bg-white/6 px-4 py-2 text-sm text-stone-200">
-            ¥0.1 解锁完整分析
+            ¥9.9 解锁完整颜值报告
           </div>
         </header>
 
@@ -847,7 +957,7 @@ export default function Home() {
                   className="mt-3 text-3xl font-semibold text-stone-900"
                   style={{ fontFamily: '"Georgia", "Times New Roman", serif' }}
                 >
-                  扫码查看完整分析
+                  用支付宝扫一扫
                 </h2>
               </div>
               <button
@@ -860,14 +970,14 @@ export default function Home() {
             </div>
 
             <div className="mt-6 rounded-[1.7rem] border border-stone-200 bg-white px-5 py-6 text-center">
-              <p className="text-sm text-stone-500">支付金额</p>
-              <p className="mt-2 text-5xl font-semibold text-stone-900">¥0.1</p>
+              <p className="text-sm text-stone-500">当前价格</p>
+              <p className="mt-2 text-5xl font-semibold text-stone-900">¥9.9</p>
 
               <div className="mx-auto mt-6 flex h-[220px] w-[220px] items-center justify-center rounded-[1.5rem] border border-stone-200 bg-stone-50">
                 {paySuccess ? (
                   <div className="text-center text-emerald-600">
                     <div className="text-6xl font-semibold">✓</div>
-                    <p className="mt-3 text-sm font-medium">支付成功，正在解锁报告</p>
+                    <p className="mt-3 text-sm font-medium">支付成功，正在为你解锁报告</p>
                   </div>
                 ) : qrLoading ? (
                   <div className="h-12 w-12 animate-spin rounded-full border-4 border-stone-200 border-t-stone-700" />
@@ -901,13 +1011,13 @@ export default function Home() {
               </div>
 
               <p className="mt-5 text-sm leading-7 text-stone-600">
-                请使用支付宝扫码支付，支付成功后自动解锁，无需手动刷新页面。
+                支付成功后自动解锁，通常在 3 秒内完成
               </p>
             </div>
 
             <div className="mt-4 rounded-[1.35rem] bg-stone-100 px-4 py-4 text-sm leading-7 text-stone-600">
-              <p>订单号：{safeResult.orderId}</p>
-              <p>二维码 60 秒内有效，系统每 3 秒自动检查支付状态。</p>
+              <p>订单编号：{safeResult.orderId}</p>
+              <p>二维码 60 秒内有效，系统会每 3 秒自动检查一次支付状态。</p>
             </div>
           </div>
         </div>

@@ -229,7 +229,7 @@ async def create_order(request: Request):
 
     trade_no = f"MS{order_id}{int(time.time())}"
     analysis_store[order_id]["tradeNo"] = trade_no
-    result = create_payment(order_id=trade_no, amount="0.10", subject="MirrorScore 深度面部分析报告")
+    result = create_payment(order_id=trade_no, amount="9.9", subject="MirrorScore 深度面部分析报告")
     if result.get("qr_code"):
         return {"success": True, "qrCode": result["qr_code"], "tradeNo": trade_no}
     raise HTTPException(status_code=500, detail=f"创建订单失败：{result.get('msg', '未知错误')}")
